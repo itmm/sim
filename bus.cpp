@@ -12,8 +12,10 @@ void bus::put8(int addr, int value) {
 			++found;
 		}
 	}
-	assert(found);
+	assert(found && "invalid put address");
 }
+
+#include <iostream>
 
 int bus::get8(int addr) {
 	++clk_;
@@ -22,6 +24,6 @@ int bus::get8(int addr) {
 			return d->get8(addr);
 		}
 	}
-	assert(false);
+	assert(false && "invalid get address");
 	return 0x00;
 }

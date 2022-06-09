@@ -84,8 +84,10 @@ void bus::put8(int addr, int value) {
 			++found;
 		}
 	}
-	assert(found);
+	assert(found && "invalid put address");
 }
+
+#include <iostream>
 
 int bus::get8(int addr) {
 	++clk_;
@@ -94,7 +96,7 @@ int bus::get8(int addr) {
 			return d->get8(addr);
 		}
 	}
-	assert(false);
+	assert(false && "invalid get address");
 	return 0x00;
 }
 ```
@@ -106,20 +108,22 @@ int bus::get8(int addr) {
 
 #include "bus.h"
 
+#include <cassert>
+
 class ram: public device {
 		char *data_;
 	public:
 		ram(int start, char *data_begin, char *data_end): device { start, start + static_cast<int>(data_end - data_begin) }, data_ { data_begin } { }
-		void put8(int addr, int value) override { data_[addr] = static_cast<char>(value); }
-		int get8(int addr) override { return data_[addr]; }
+		void put8(int addr, int value) override { data_[addr - begin()] = static_cast<char>(value); }
+		int get8(int addr) override { return data_[addr - begin()] & 0xff; }
 };
 
 class rom: public device {
 		const char *data_;
 	public:
 		rom(int start, char *data_begin, char *data_end): device { start, start + static_cast<int>(data_end - data_begin) }, data_ { data_begin } { }
-		void put8(int addr, int value) override { }
-		int get8(int addr) override { return data_[addr]; }
+		void put8(int addr, int value) override { assert(false && "put to ROM"); }
+		int get8(int addr) override { return data_[addr - begin()] & 0xff; }
 };
 ```
 
@@ -131,13 +135,22 @@ class rom: public device {
 class bus;
 
 class cpu {
+		enum {
+			p_c = 0x1, p_z = 0x2, p_i = 0x3, p_d = 0x4,
+			p_b = 0x5, p_e = 0x6, p_v = 0x7, p_n = 0x8
+		};
+		enum {
+			op_brk = 0x00,
+			op_nop = 0xea
+		};
 		int a_;
 		int x_;
 		int y_;
-		int p_ { 0 };
+		int p_ { p_e };
 		int sp_ { 0 };
 		int pc_ { 0 };
 	public:
+		void reset(bus &b);
 		void run(bus &b);
 };
 ```
@@ -149,11 +162,20 @@ class cpu {
 
 #include "mem.h"
 
+#include <cassert>
+
+void cpu::reset(bus &b) {
+	p_ = p_e | p_i;
+	pc_ = b.get16(0xfffc);
+}
+
 void cpu::run(bus &b) {
 	for (;;) {
 		auto cmd { b.get8(pc_++) };
 		switch (cmd) {
-			case 0x00: return;
+			case op_brk: return;
+			case op_nop: break;
+			default: assert(false && "unknown opcode");
 			
 		}
 	}
@@ -173,9 +195,16 @@ int main() {
 	bus b { ck };
 	char ram_data[0x4000];
 	char rom_data[0x4000];
+	rom_data[0x3ffe] = '\x00';
+	rom_data[0x3fff] = '\xc0';
+	rom_data[0x3ffc] = '\x00';
+	rom_data[0x3ffd] = '\xc0';
+	rom_data[0x0000] = '\xea';
+	rom_data[0x0001] = '\xea';
 	b.add(std::make_unique<ram>(0x0000, ram_data, ram_data + sizeof(ram_data)));
 	b.add(std::make_unique<rom>(0xc000, rom_data, rom_data + sizeof(rom_data)));
 	cpu cp;
+	cp.reset(b);
 	cp.run(b);
 }
 ```
